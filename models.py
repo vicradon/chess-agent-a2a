@@ -1,7 +1,24 @@
 from pydantic import BaseModel, UUID4
-from typing import List, Optional, Dict, Union, Literal
+from typing import List, Optional, Dict, Union, Literal, NamedTuple
 from enum import Enum
 
+
+class ErrorDetail(NamedTuple):
+    message: str
+    description: str
+
+ERROR_CODES = {
+    -32700: ErrorDetail("JSON parse error", "Invalid JSON was sent"),
+    -32600: ErrorDetail("Invalid Request", "Request payload validation error"),
+    -32601: ErrorDetail("Method not found", "Not a valid method"),
+    -32602: ErrorDetail("Invalid params", "Invalid method parameters"),
+    -32603: ErrorDetail("Internal error", "Internal JSON-RPC error"),
+    -32001: ErrorDetail("Task not found", "Task not found with the provided id"),
+    -32002: ErrorDetail("Task cannot be canceled", "Task cannot be canceled by the remote agent"),
+    -32003: ErrorDetail("Push notifications not supported", "Push Notification is not supported by the agent"),
+    -32004: ErrorDetail("Unsupported operation", "Operation is not supported"),
+    -32005: ErrorDetail("Incompatible content types", "Incompatible content types between client and an agent"),
+}
 
 class TextPart(BaseModel):
     type: str = "text"
@@ -63,13 +80,10 @@ class Task(BaseModel):
     metadata: Optional[Dict[str, object]] = {}
 
 
-class TaskSendParams(BaseModel):
+class TaskParams(BaseModel):
     id: str
     sessionId: Optional[str] = None
     message: Message
-    historyLength: Optional[int] = None
-    pushNotification: Optional[Dict[str, object]] = None
-    metadata: Optional[Dict[str, object]] = {}
 
 
 class PushNotificationConfig(BaseModel):
@@ -88,13 +102,28 @@ class Result(BaseModel):
     session_id: UUID4
     status: TaskStatus
 
+class RPCMethod(Enum):
+    TASK_SEND = "tasks/send"
+    TASK_GET = "tasks/get"
+    TASK_CANCEL = "tasks/cancel"
+    TASK_PUSH = "tasks/push"
+    TASK_RESUBSCRIBE = "tasks/resubscribe"
+    TASK_PUSH_GET = "tasks/push/get"
+    TASK_PUSH_UPDATE = "tasks/push/update"
+    TASK_PUSH_DELETE = "tasks/push/delete"
+
 class RPCRequest(BaseModel):
     jsonrpc: str
-    id: int
-    method: str
-    params: TaskSendParams
+    id: UUID4
+    method: RPCMethod
+    params: TaskParams
+    acceptedOutputModes: Optional[List[str]] = None
+    pushNotification: Optional[Dict[str, object]] = None
+    historyLength: Optional[int] = None
+    metadata: Optional[Dict[str, object]] = {}
 
 class RPCResponse(BaseModel):
     jsonrpc: str = "2.0"
-    id: int
+    id: UUID4
     result: Result
+

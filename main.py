@@ -1,6 +1,7 @@
 import os
 import json
-from fastapi import FastAPI, BackgroundTasks, Request, Body
+from fastapi import FastAPI, BackgroundTasks, Request, Body, HTTPException
+from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from uuid import uuid4 as uuid
 from jsonrpcclient import parse, parse_json
@@ -27,42 +28,51 @@ def usermove(board, change):
     piece = chess.Move.from_uci(change)
     board.push(piece)
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def read_root():
-    return "<p>Chess bot A2A</p>"
+    return '<p style="font-size:40px">Chess bot A2A</p>'
 
-async def handle_task_send(id: int, params: models.TaskSendParams):
+async def handle_task_send(id: int, params: models.TaskParams):
     response = models.RPCResponse(
-        id=id,
+        id=uuid(),
         result=models.Result(
             id=uuid(),
-            session_id=uuid(),
+            session_id=params.sessionId,
             status=models.TaskStatus(
-                state=models.TaskState.inputrequired,
+                state=models.TaskState.completed,
                 message=models.Message(
                     role="agent",
                     parts=[models.TextPart(
-                        text="make your move"
+                        text="e5"
                     )]
                 )
             ),
         )
     )
 
+    print(response.model_dump_json())
+
     return response
 
 
-async def handle_get_task(id: int, params: models.TaskSendParams):
+async def handle_get_task(id: int, params: models.TaskParams):
     return "bro"
 
 @app.post("/")
 async def handle_rpc(rpc_request: models.RPCRequest):
-    if rpc_request.method == "tasks/send":
+    print(rpc_request.model_dump_json())
+    if rpc_request.method == models.RPCMethod.TASK_SEND:
         return await handle_task_send(rpc_request.id, rpc_request.params)
-    elif rpc_request.method == "tasks/get":
+    elif rpc_request.method == models.RPCMethod.TASK_GET:
         return await handle_get_task(rpc_request.id, rpc_request.params)
 
     raise HTTPException(status_code=400, detail="Could not handle task")
+
+# @app.post("/")
+# async def seeraw(request: Request):
+#     body = await request.body()
+#     print(body.decode())
+#     return True
 
 @app.get("/.well-known/agent.json")
 def agent_card(request: Request):
