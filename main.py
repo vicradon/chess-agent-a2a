@@ -184,5 +184,6 @@ def agent_card(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
+    PORT = int(os.getenv("PORT", 7000))
 
-    uvicorn.run("main:app", host="127.0.0.1", port=7000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=PORT, reload=True)
