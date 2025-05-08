@@ -1,4 +1,4 @@
-from pydantic import BaseModel, UUID4
+from pydantic import BaseModel, UUID4, Field, model_validator
 from typing import List, Optional, Dict, Union, Literal, NamedTuple
 from enum import Enum
 
@@ -25,12 +25,24 @@ class TextPart(BaseModel):
     text: str
     metadata: Optional[Dict[str, object]] = None
 
+class FileContent(BaseModel):
+    name: Optional[str] = None
+    mimeType: Optional[str] = None
+    bytes: Optional[str] = Field(default=None, description="Base64 encoded content")
+    uri: Optional[str] = Field(default=None, description="URI to the file")
+
+    @model_validator(mode='after')
+    def check_bytes_or_uri(self) -> 'FileContent':
+        if self.bytes and self.uri:
+            raise ValueError("Only one of 'bytes' or 'uri' must be provided, not both.")
+        if not self.bytes and not self.uri:
+            raise ValueError("One of 'bytes' or 'uri' must be provided.")
+        return self
 
 class FilePart(BaseModel):
     type: str = "file"
-    file: Dict[str, Optional[Union[str, Dict[str, str]]]]
+    file: FileContent
     metadata: Optional[Dict[str, object]] = None
-
 
 class DataPart(BaseModel):
     type: str = "data"
@@ -67,8 +79,8 @@ class Artifact(BaseModel):
 
 class TaskStatus(BaseModel):
     state: TaskState
-    message: Optional[Message] = None
-    timestamp: Optional[str] = None
+    timestamp: str
+    message: Message
 
 
 class Task(BaseModel):

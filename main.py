@@ -1,53 +1,128 @@
 import os
 import json
+import base64
+import datetime
+from typing import Tuple, Optional
+from dataclasses import dataclass
 from fastapi import FastAPI, BackgroundTasks, Request, Body, HTTPException
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from uuid import uuid4 as uuid
-from jsonrpcclient import parse, parse_json
 import models
+import redis
+import chess
+import chess.engine
 
 load_dotenv()
 app = FastAPI()
 
+r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 CHESS_ENGINE_PATH = os.getenv("CHESS_ENGINE_PATH")
 
-def start_game():
-    import chess
-    import chess.engine
-    engine = chess.engine.SimpleEngine.popen_uci(CHESS_ENGINE_PATH)
+
+@dataclass
+class RedisKeys:
+    games = "games"
+
+
+class Game:
+    def __init__(self, board, engine, engine_time_limit=0.5):
+        self.board = board
+        self.engine = engine
+        self.engine_time_limit = engine_time_limit
+
+    def aimove(self):
+        ai = self.engine.play(
+            self.board, chess.engine.Limit(time=self.engine_time_limit)
+        )
+        self.board.push(ai.move)
+        return ai.move, self.board
+
+    def usermove(self, move):
+        try:
+            self.board.push_san(move)
+        except ValueError:
+            raise ValueError(f"Invalid move: {move}")
+        return self.board
+
+    def to_dict(self):
+        return {"fen": self.board.fen(), "engine_time_limit": self.engine_time_limit}
+
+    @classmethod
+    def from_dict(cls, data):
+        board = chess.Board(data["fen"])
+        engine_time_limit = data.get("engine_time_limit", 0.5)
+        engine = chess.engine.SimpleEngine.popen_uci(CHESS_ENGINE_PATH)
+        return cls(board, engine, engine_time_limit)
+
+
+class GameRepository:
+    def __init__(self, redis_client, redis_key_prefix=RedisKeys.games):
+        self.r = redis_client
+        self.prefix = redis_key_prefix
+
+    def _session_key(self, session_id: str) -> str:
+        return f"{self.prefix}:{session_id}"
+
+    def save(self, session_id: str, game: Game):
+        key = self._session_key(session_id)
+        self.r.set(key, json.dumps(game.to_dict()))
+
+    def load(self, session_id: str) -> Optional[Game]:
+        key = self._session_key(session_id)
+        data = self.r.get(key)
+        if data:
+            return Game.from_dict(json.loads(data))
+        return None
+
+    def delete(self, session_id: str):
+        key = self._session_key(session_id)
+        self.r.delete(key)
+
+
+def start_game(engine_path: str) -> Game:
+    engine = chess.engine.SimpleEngine.popen_uci(engine_path)
     board = chess.Board()
-    
-    return board, engine
 
-def aimove(board):
-    ai = engine.play(board, chess.engine.Limit(time=0.5))
-    board.push(ai.move)
+    return Game(board, engine)
 
-def usermove(board, change):
-    piece = chess.Move.from_uci(change)
-    board.push(piece)
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     return '<p style="font-size:40px">Chess bot A2A</p>'
 
-async def handle_task_send(id: int, params: models.TaskParams):
+
+game_repo = GameRepository(r)
+
+async def handle_task_send(id: str, params: models.TaskParams):
+    session_id = params.sessionId
+    game = game_repo.load(session_id)
+
+    if not game:
+        game = start_game(engine_path=CHESS_ENGINE_PATH)
+
+    game.usermove(params.message.parts[0].text)
+    aimove, board = game.aimove()
+
+    game_repo.save(session_id, game)
+
     response = models.RPCResponse(
-        id=uuid(),
+        id=id,
         result=models.Result(
-            id=uuid(),
+            id=params.id,
             session_id=params.sessionId,
             status=models.TaskStatus(
-                state=models.TaskState.completed,
+                state=models.TaskState.working,
+                timestamp=datetime.datetime.now().isoformat(),
                 message=models.Message(
                     role="agent",
-                    parts=[models.TextPart(
-                        text="e5"
-                    )]
-                )
+                    parts=[
+                        models.TextPart(text=aimove.uci()),
+                        models.TextPart(text=str(board)),
+                    ],
+                ),
             ),
-        )
+        ),
     )
 
     print(response.model_dump_json())
@@ -57,6 +132,7 @@ async def handle_task_send(id: int, params: models.TaskParams):
 
 async def handle_get_task(id: int, params: models.TaskParams):
     return "bro"
+
 
 @app.post("/")
 async def handle_rpc(rpc_request: models.RPCRequest):
@@ -68,11 +144,6 @@ async def handle_rpc(rpc_request: models.RPCRequest):
 
     raise HTTPException(status_code=400, detail="Could not handle task")
 
-# @app.post("/")
-# async def seeraw(request: Request):
-#     body = await request.body()
-#     print(body.decode())
-#     return True
 
 @app.get("/.well-known/agent.json")
 def agent_card(request: Request):
@@ -113,4 +184,5 @@ def agent_card(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="127.0.0.1", port=7000, reload=True)
