@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import random
 import datetime
 from typing import Tuple, Optional
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ import models
 import redis
 import chess
 import chess.engine
+from minio import Minio
+from minio.error import S3Error
 
 load_dotenv()
 app = FastAPI()
@@ -19,11 +22,30 @@ app = FastAPI()
 r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 CHESS_ENGINE_PATH = os.getenv("CHESS_ENGINE_PATH")
 
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+MINIO_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME")
+MINIO_BUCKET_ACCESS_KEY = os.getenv("MINIO_BUCKET_ACCESS_KEY")
+MINIO_BUKCET_SECRET_KEY = os.getenv("MINIO_BUKCET_SECRET_KEY")
+
+minio_client = Minio(
+    MINIO_ENDPOINT,
+    access_key=MINIO_BUCKET_ACCESS_KEY,
+    secret_key=MINIO_BUKCET_SECRET_KEY,
+)
+
 
 @dataclass
 class RedisKeys:
     games = "games"
 
+def generate_random_filename(extension: str = "svg", word_count: int = 3) -> str:
+    words = [
+        "sun", "moon", "tree", "cloud", "river", "stone", "eagle", "wolf",
+        "fire", "wind", "storm", "leaf", "sky", "night", "light", "shadow",
+        "mountain", "ocean", "echo", "whisper", "flame", "dust", "branch"
+    ]
+    chosen = random.sample(words, word_count)
+    return "_".join(chosen) + f".{extension}"
 
 class Game:
     def __init__(self, board, engine, engine_time_limit=0.5):
@@ -94,6 +116,7 @@ def read_root():
 
 game_repo = GameRepository(r)
 
+
 async def handle_task_send(id: str, params: models.TaskParams):
     session_id = params.sessionId
     game = game_repo.load(session_id)
@@ -106,19 +129,51 @@ async def handle_task_send(id: str, params: models.TaskParams):
 
     game_repo.save(session_id, game)
 
+    filename = generate_random_filename()  # e.g., 'cloud_stone_echo.svg'
+    destination_file = f"public/chessagent/{filename}"
+    source_file = f"/tmp/{filename}"
+
+    svg = board._repr_svg_()
+
+    with open(source_file, "w") as f:
+        f.write(svg)
+        new_source_file = source_file.split(".svg")[0] + ".png"
+
+        import cairosvg
+        cairosvg.svg2png(url=source_file, write_to=new_source_file)
+
+        source_file = new_source_file
+        destination_file = destination_file.split(".svg")[0] + ".png"
+
+
+    minio_client.fput_object(
+        MINIO_BUCKET_NAME,
+        destination_file,
+        source_file,
+    )
+
+    image_url = f"https://media.tifi.tv/{MINIO_BUCKET_NAME}/{destination_file}"
+
     response = models.RPCResponse(
         id=id,
         result=models.Result(
             id=params.id,
             session_id=params.sessionId,
             status=models.TaskStatus(
-                state=models.TaskState.working,
+                state=models.TaskState.inputrequired,
                 timestamp=datetime.datetime.now().isoformat(),
                 message=models.Message(
                     role="agent",
                     parts=[
                         models.TextPart(text=aimove.uci()),
                         models.TextPart(text=str(board)),
+                        models.FilePart(
+                            file=models.FileContent(
+                                name=filename,
+                                mimeType="image/svg+xml",
+                                uri=image_url,
+                            )
+                        ),
                     ],
                 ),
             ),
@@ -184,6 +239,7 @@ def agent_card(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
+
     PORT = int(os.getenv("PORT", 7000))
 
     uvicorn.run("main:app", host="127.0.0.1", port=PORT, reload=True)
