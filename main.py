@@ -117,7 +117,7 @@ def read_root():
 game_repo = GameRepository(r)
 
 
-async def handle_task_send(id: str, params: models.TaskParams):
+async def handle_task_send(request_id: str, params: models.TaskParams):
     session_id = params.sessionId
     game = game_repo.load(session_id)
 
@@ -154,8 +154,9 @@ async def handle_task_send(id: str, params: models.TaskParams):
 
     image_url = f"https://media.tifi.tv/{MINIO_BUCKET_NAME}/{destination_file}"
 
+
     response = models.RPCResponse(
-        id=id,
+        id=request_id,
         result=models.Result(
             id=params.id,
             session_id=params.sessionId,
@@ -180,7 +181,7 @@ async def handle_task_send(id: str, params: models.TaskParams):
         ),
     )
 
-    print(response.model_dump_json())
+    # print(response.model_dump_json())
 
     return response
 
@@ -190,8 +191,7 @@ async def handle_get_task(id: int, params: models.TaskParams):
 
 
 @app.post("/")
-async def handle_rpc(rpc_request: models.RPCRequest):
-    print(rpc_request.model_dump_json())
+async def handle_rpc(rpc_request: models.RPCRequest):    
     if rpc_request.method == models.RPCMethod.TASK_SEND:
         return await handle_task_send(rpc_request.id, rpc_request.params)
     elif rpc_request.method == models.RPCMethod.TASK_GET:

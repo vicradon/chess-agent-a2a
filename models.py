@@ -110,8 +110,8 @@ class TaskPushNotificationConfig(BaseModel):
 
 
 class Result(BaseModel):
-    id: UUID4
-    session_id: UUID4
+    id: str
+    session_id: str
     status: TaskStatus
 
 class RPCMethod(Enum):
@@ -126,7 +126,7 @@ class RPCMethod(Enum):
 
 class RPCRequest(BaseModel):
     jsonrpc: str
-    id: UUID4
+    id: str
     method: RPCMethod
     params: TaskParams
     acceptedOutputModes: Optional[List[str]] = None
@@ -136,6 +136,6 @@ class RPCRequest(BaseModel):
 
 class RPCResponse(BaseModel):
     jsonrpc: str = "2.0"
-    id: UUID4
+    id: str
     result: Result
 
