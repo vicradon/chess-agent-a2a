@@ -193,6 +193,7 @@ async def handle_get_task(id: int, params: models.TaskParams):
 @app.post("/")
 async def handle_rpc(rpc_request: models.RPCRequest):    
     if rpc_request.method == models.RPCMethod.TASK_SEND:
+        print(rpc_request.params)
         return await handle_task_send(rpc_request.id, rpc_request.params)
     elif rpc_request.method == models.RPCMethod.TASK_GET:
         return await handle_get_task(rpc_request.id, rpc_request.params)
@@ -202,7 +203,8 @@ async def handle_rpc(rpc_request: models.RPCRequest):
 
 @app.get("/.well-known/agent.json")
 def agent_card(request: Request):
-    base_url = str(request.base_url).rstrip("/")
+    external_base = request.headers.get("x-external-base-url", "")
+    base_url = str(request.base_url).rstrip("/") + external_base
     card = {
         "name": "Chess Agent",
         "description": "An agent that plays chess. Accepts moves in standard notation and returns updated board state as FEN and an image.",
