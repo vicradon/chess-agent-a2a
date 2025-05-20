@@ -38,14 +38,36 @@ minio_client = Minio(
 class RedisKeys:
     games = "games"
 
+
 def generate_random_filename(extension: str = "svg", word_count: int = 3) -> str:
     words = [
-        "sun", "moon", "tree", "cloud", "river", "stone", "eagle", "wolf",
-        "fire", "wind", "storm", "leaf", "sky", "night", "light", "shadow",
-        "mountain", "ocean", "echo", "whisper", "flame", "dust", "branch"
+        "sun",
+        "moon",
+        "tree",
+        "cloud",
+        "river",
+        "stone",
+        "eagle",
+        "wolf",
+        "fire",
+        "wind",
+        "storm",
+        "leaf",
+        "sky",
+        "night",
+        "light",
+        "shadow",
+        "mountain",
+        "ocean",
+        "echo",
+        "whisper",
+        "flame",
+        "dust",
+        "branch",
     ]
     chosen = random.sample(words, word_count)
     return "_".join(chosen) + f".{extension}"
+
 
 class Game:
     def __init__(self, board, engine, engine_time_limit=0.5):
@@ -124,7 +146,28 @@ async def handle_task_send(request_id: str, params: models.TaskParams):
     if not game:
         game = start_game(engine_path=CHESS_ENGINE_PATH)
 
-    game.usermove(params.message.parts[0].text)
+    tentative_move = params.message.parts[0].text
+    try:
+        game.usermove(tentative_move)
+    except ValueError:
+        response = models.RPCResponse(
+            id=request_id,
+            error=models.InvalidParamsError(
+                message=f"Invalid move: '{tentative_move}'",
+                data=f"You sent '{tentative_move}' which is not a valid chess move",
+            ),
+        )
+        print(response)
+        return response
+    except:
+        response = models.RPCResponse(
+            id=request_id,
+            error=models.InvalidParamsError(
+                message="An error occured",
+            ),
+        )
+        return response
+
     aimove, board = game.aimove()
 
     game_repo.save(session_id, game)
@@ -140,11 +183,11 @@ async def handle_task_send(request_id: str, params: models.TaskParams):
         new_source_file = source_file.split(".svg")[0] + ".png"
 
         import cairosvg
+
         cairosvg.svg2png(url=source_file, write_to=new_source_file)
 
         source_file = new_source_file
         destination_file = destination_file.split(".svg")[0] + ".png"
-
 
     minio_client.fput_object(
         MINIO_BUCKET_NAME,
@@ -153,7 +196,6 @@ async def handle_task_send(request_id: str, params: models.TaskParams):
     )
 
     image_url = f"https://media.tifi.tv/{MINIO_BUCKET_NAME}/{destination_file}"
-
 
     response = models.RPCResponse(
         id=request_id,
@@ -181,8 +223,6 @@ async def handle_task_send(request_id: str, params: models.TaskParams):
         ),
     )
 
-    # print(response.model_dump_json())
-
     return response
 
 
@@ -191,9 +231,8 @@ async def handle_get_task(id: int, params: models.TaskParams):
 
 
 @app.post("/")
-async def handle_rpc(rpc_request: models.RPCRequest):    
+async def handle_rpc(rpc_request: models.RPCRequest):
     if rpc_request.method == models.RPCMethod.TASK_SEND:
-        print(rpc_request.params)
         return await handle_task_send(rpc_request.id, rpc_request.params)
     elif rpc_request.method == models.RPCMethod.TASK_GET:
         return await handle_get_task(rpc_request.id, rpc_request.params)

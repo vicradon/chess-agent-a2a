@@ -1,5 +1,5 @@
 from pydantic import BaseModel, UUID4, Field, model_validator
-from typing import List, Optional, Dict, Union, Literal, NamedTuple
+from typing import List, Optional, Dict, Union, Literal, NamedTuple, Any
 from enum import Enum
 
 
@@ -19,6 +19,73 @@ ERROR_CODES = {
     -32004: ErrorDetail("Unsupported operation", "Operation is not supported"),
     -32005: ErrorDetail("Incompatible content types", "Incompatible content types between client and an agent"),
 }
+
+class JSONRPCError(BaseModel):
+    code: int
+    message: str
+    data: Any | None = None
+
+class JSONParseError(JSONRPCError):
+    code: int = -32700
+    message: str = 'Invalid JSON payload'
+    data: Any | None = None
+
+
+class InvalidRequestError(JSONRPCError):
+    code: int = -32600
+    message: str = 'Request payload validation error'
+    data: Any | None = None
+
+
+class MethodNotFoundError(JSONRPCError):
+    code: int = -32601
+    message: str = 'Method not found'
+    data: None = None
+
+
+class InvalidParamsError(JSONRPCError):
+    code: int = -32602
+    message: str = 'Invalid parameters'
+    data: Any | None = None
+
+
+class InternalError(JSONRPCError):
+    code: int = -32603
+    message: str = 'Internal error'
+    data: Any | None = None
+
+
+class TaskNotFoundError(JSONRPCError):
+    code: int = -32001
+    message: str = 'Task not found'
+    data: None = None
+
+
+class TaskNotCancelableError(JSONRPCError):
+    code: int = -32002
+    message: str = 'Task cannot be canceled'
+    data: None = None
+
+
+class PushNotificationNotSupportedError(JSONRPCError):
+    code: int = -32003
+    message: str = 'Push Notification is not supported'
+    data: None = None
+
+
+class UnsupportedOperationError(JSONRPCError):
+    code: int = -32004
+    message: str = 'This operation is not supported'
+    data: None = None
+
+
+class ContentTypeNotSupportedError(JSONRPCError):
+    code: int = -32005
+    message: str = 'Incompatible content types'
+    data: None = None
+
+
+
 
 class TextPart(BaseModel):
     type: str = "text"
@@ -137,5 +204,5 @@ class RPCRequest(BaseModel):
 class RPCResponse(BaseModel):
     jsonrpc: str = "2.0"
     id: str
-    result: Result
-
+    result: Result | None = None
+    error: JSONRPCError | None = None
